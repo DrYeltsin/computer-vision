@@ -1,6 +1,7 @@
 # ============================================
-# DETECTOR DE FORMAS EN VIDEO CON TEMPORIZADOR
-# Compatible con macOS (M1–M4) y Windows
+# DETECTOR DE FORMAS EN VIDEO (v3)
+# Con contador de 10 segundos y botón de reinicio
+# Compatible con macOS M1–M4 y Windows
 # ============================================
 
 import cv2
@@ -8,7 +9,7 @@ import numpy as np
 import streamlit as st
 from PIL import Image
 import av
-from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
+from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, WebRtcMode
 import matplotlib.pyplot as plt
 import time
 
@@ -68,12 +69,11 @@ def detectar_formas(frame_bgr):
 class VideoProcessor(VideoTransformerBase):
     def __init__(self):
         self.total_conteo = {"Triangulo": 0, "Cuadrado": 0, "Rectangulo": 0, "Circulo": 0}
-        self.freeze = False  # para detener el video
+        self.freeze = False
 
     def transform(self, frame):
         if self.freeze:
-            return frame.to_ndarray(format="bgr24")  # congela imagen
-
+            return frame.to_ndarray(format="bgr24")
         frame_bgr = frame.to_ndarray(format="bgr24")
         resultado, conteo = detectar_formas(frame_bgr)
         for k in conteo:
@@ -84,8 +84,8 @@ class VideoProcessor(VideoTransformerBase):
 # INTERFAZ STREAMLIT
 # --------------------------
 st.set_page_config(page_title="Detector de Formas (Live + Timer)", layout="wide")
-st.title("🎥 Detector de Formas Geométricas — Live (10 segundos)")
-st.caption("Compatible con macOS M4, Windows y cámaras virtuales (Iriun, OBS, etc.)")
+st.title("🎥 Detector de Formas Geométricas — En Tiempo Real (10s)")
+st.caption("Optimizado para macOS M4, Windows y cámaras virtuales (Iriun, OBS, etc.)")
 
 # Estado persistente
 if "start_time" not in st.session_state:
@@ -95,7 +95,7 @@ if "running" not in st.session_state:
 if "conteo_final" not in st.session_state:
     st.session_state.conteo_final = None
 
-# Botón de inicio y reinicio
+# Botones
 col1, col2 = st.columns([1, 1])
 with col1:
     if st.button("▶️ Iniciar detección (10s)"):
@@ -109,17 +109,17 @@ with col2:
         st.session_state.conteo_final = None
         st.experimental_rerun()
 
-# Configuración del streamer
+# Stream de video (CORREGIDO)
 ctx = webrtc_streamer(
     key="form-detector-timer",
-    mode="transform",
+    mode=WebRtcMode.TRANSFORM,  # ✅ CORREGIDO
     video_processor_factory=VideoProcessor,
     media_stream_constraints={"video": True, "audio": False},
     async_transform=True
 )
 
 # --------------------------
-# LÓGICA DEL TEMPORIZADOR
+# TEMPORIZADOR
 # --------------------------
 if ctx.video_processor:
     processor = ctx.video_processor
