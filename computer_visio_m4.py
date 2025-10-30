@@ -1,5 +1,5 @@
 # ============================================
-# DETECTOR DE FORMAS EN VIDEO EN VIVO CON GUARDADO AUTOMÁTICO
+# DETECTOR DE FORMAS - CAPTURA DE VIDEO 5s
 # ============================================
 # Autor: Yeltsin Solano Díaz
 # Compatible con macOS M4, Windows y Streamlit Cloud
@@ -9,17 +9,20 @@ import cv2
 import numpy as np
 import streamlit as st
 from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
+import tempfile
+import time
+import os
+from moviepy.editor import ImageSequenceClip
 from datetime import datetime
 from PIL import Image
 import io
-import time
 
 # --------------------------
 # CONFIGURACIÓN DE PÁGINA
 # --------------------------
-st.set_page_config(page_title="Detector de Formas Geométricas", layout="wide")
-st.title("🎥 Detección de Formas Geométricas — En Tiempo Real")
-st.caption("Versión con cámara en vivo, temporizador y opción para guardar imagen final.")
+st.set_page_config(page_title="Detector de Formas en Video", layout="wide")
+st.title("🎥 Detección de Formas en Video (5 segundos)")
+st.caption("Captura un video de 5 segundos, analiza las formas y genera un video procesado con los resultados.")
 
 # --------------------------
 # CONFIGURACIÓN STUN/TURN
@@ -40,7 +43,6 @@ rtc_config = {
 # --------------------------
 def detectar_formas(frame_bgr):
     conteo = {"Triangulo": 0, "Cuadrado": 0, "Rectangulo": 0, "Circulo": 0}
-
     gris = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     gris_eq = clahe.apply(gris)
@@ -85,97 +87,86 @@ def detectar_formas(frame_bgr):
 
     return frame_bgr, conteo
 
+
 # --------------------------
-# CLASE DE VIDEO STREAMLIT
+# CLASE STREAMLIT VIDEO
 # --------------------------
-class ShapeDetector(VideoTransformerBase):
+class VideoRecorder(VideoTransformerBase):
     def __init__(self):
-        self.total_conteo = {"Triangulo": 0, "Cuadrado": 0, "Rectangulo": 0, "Circulo": 0}
-        self.last_frame = None
-        self.freeze = False
-        self.remaining = None
+        self.frames = []
+        self.recording = False
+        self.start_time = None
 
     def transform(self, frame):
         img = frame.to_ndarray(format="bgr24")
-        if not self.freeze:
-            resultado, conteo = detectar_formas(img)
-            self.last_frame = resultado.copy()
-            for k in conteo:
-                self.total_conteo[k] += conteo[k]
-        else:
-            resultado = self.last_frame if self.last_frame is not None else img
 
-        # Mostrar temporizador en video
-        if self.remaining is not None:
-            cv2.putText(resultado, f"⏱ {self.remaining:0.1f}s", (20, 40),
-                        cv2.FONT_HERSHEY_DUPLEX, 1.0, (0, 255, 255), 2, cv2.LINE_AA)
-        return resultado
+        if self.recording:
+            if time.time() - self.start_time < 5:
+                self.frames.append(img.copy())
+                cv2.putText(img, "🎥 Grabando...", (20, 40),
+                            cv2.FONT_HERSHEY_DUPLEX, 1.0, (0, 255, 255), 2)
+            else:
+                self.recording = False
+
+        return img
+
 
 # --------------------------
 # INTERFAZ STREAMLIT
 # --------------------------
-duracion = st.slider("⏱️ Duración del análisis (segundos):", 5, 30, 10, step=5)
-
-col1, col2 = st.columns([1, 1])
-with col1:
-    if st.button("▶️ Iniciar detección"):
-        st.session_state.start_time = time.time()
-        st.session_state.running = True
-        st.session_state.resultado = None
-with col2:
-    if st.button("🔁 Reiniciar"):
-        st.session_state.running = False
-        st.session_state.resultado = None
-        st.rerun()
-
-st.info("Activa tu cámara para ver la detección en tiempo real. Usa la webcam o Iriun Camera.")
+st.info("Presiona 'Iniciar Grabación' para capturar un video de 5 segundos desde tu cámara.")
 ctx = webrtc_streamer(
-    key="form-detector-final",
-    video_processor_factory=ShapeDetector,
+    key="form-detector-video",
+    video_processor_factory=VideoRecorder,
     media_stream_constraints={"video": True, "audio": False},
     async_transform=True,
     rtc_configuration=rtc_config,
 )
 
-# --------------------------
-# TEMPORIZADOR Y GUARDADO
-# --------------------------
 if ctx.video_processor:
     processor = ctx.video_processor
 
-    if "running" in st.session_state and st.session_state.running:
-        elapsed = time.time() - st.session_state.start_time
-        remaining = max(0, duracion - elapsed)
-        processor.remaining = remaining
+    if st.button("▶️ Iniciar Grabación (5s)"):
+        processor.frames = []
+        processor.recording = True
+        processor.start_time = time.time()
+        st.success("🎬 Grabando por 5 segundos...")
 
-        st.subheader(f"🕒 Tiempo restante: {remaining:0.1f} s")
+    if not processor.recording and len(processor.frames) > 0:
+        st.success("✅ Grabación completada. Procesando video...")
 
-        if remaining <= 0:
-            processor.freeze = True
-            st.session_state.running = False
+        # Crear carpeta temporal
+        temp_dir = tempfile.mkdtemp()
+        processed_frames = []
+        conteo_total = {"Triangulo": 0, "Cuadrado": 0, "Rectangulo": 0, "Circulo": 0}
 
-            # Guardar imagen al finalizar
-            if processor.last_frame is not None:
-                img_bgr = processor.last_frame
-                img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-                image = Image.fromarray(img_rgb)
+        for frame in processor.frames:
+            resultado, conteo = detectar_formas(frame)
+            processed_frames.append(cv2.cvtColor(resultado, cv2.COLOR_BGR2RGB))
+            for k in conteo:
+                conteo_total[k] += conteo[k]
 
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = f"deteccion_{timestamp}.jpg"
+        # Crear video con MoviePy
+        output_path = os.path.join(temp_dir, "deteccion_final.mp4")
+        clip = ImageSequenceClip(processed_frames, fps=15)
+        clip.write_videofile(output_path, codec="libx264", audio=False, verbose=False, logger=None)
 
-                buffer = io.BytesIO()
-                image.save(buffer, format="JPEG")
-                buffer.seek(0)
+        # Imagen final
+        last_frame = processed_frames[-1]
+        image = Image.fromarray(last_frame)
+        buffer = io.BytesIO()
+        image.save(buffer, format="JPEG")
+        buffer.seek(0)
 
-                st.success("✅ Análisis finalizado. Imagen guardada.")
-                st.download_button(
-                    label="💾 Descargar imagen con resultados",
-                    data=buffer,
-                    file_name=filename,
-                    mime="image/jpeg",
-                )
+        # Mostrar resultados
+        st.subheader("📊 Conteo de formas detectadas")
+        st.json(conteo_total)
 
-                st.subheader("📊 Conteo de formas detectadas")
-                st.json(processor.total_conteo)
-    else:
-        st.warning("Presiona ▶️ para iniciar el análisis.")
+        st.subheader("🎞️ Video procesado con detecciones")
+        st.video(output_path)
+
+        # Botones de descarga
+        with open(output_path, "rb") as f:
+            st.download_button("💾 Descargar video procesado", f, "deteccion_final.mp4", "video/mp4")
+
+        st.download_button("🖼️ Descargar imagen final", buffer, "frame_final.jpg", "image/jpeg")
