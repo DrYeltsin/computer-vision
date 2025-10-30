@@ -1,20 +1,18 @@
 # ============================================
-# DETECTOR DE FORMAS EN VIDEO (v3)
-# Con contador de 10 segundos y botón de reinicio
-# Compatible con macOS M1–M4 y Windows
+# DETECTOR DE FORMAS EN VIDEO (FINAL STREAMLIT CLOUD)
+# En vivo + contador configurable + reinicio
+# Compatible con macOS M4 / Windows / Streamlit Cloud
 # ============================================
 
 import cv2
 import numpy as np
 import streamlit as st
-from PIL import Image
-import av
-from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, WebRtcMode
+from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
 import matplotlib.pyplot as plt
 import time
 
 # --------------------------
-# FUNCIÓN DE DETECCIÓN DE FORMAS
+# FUNCIÓN DE DETECCIÓN
 # --------------------------
 def detectar_formas(frame_bgr):
     conteo = {"Triangulo": 0, "Cuadrado": 0, "Rectangulo": 0, "Circulo": 0}
@@ -63,8 +61,9 @@ def detectar_formas(frame_bgr):
 
     return frame_bgr, conteo
 
+
 # --------------------------
-# CLASE STREAMING
+# PROCESADOR DE VIDEO
 # --------------------------
 class VideoProcessor(VideoTransformerBase):
     def __init__(self):
@@ -80,12 +79,13 @@ class VideoProcessor(VideoTransformerBase):
             self.total_conteo[k] += conteo[k]
         return resultado
 
+
 # --------------------------
 # INTERFAZ STREAMLIT
 # --------------------------
-st.set_page_config(page_title="Detector de Formas (Live + Timer)", layout="wide")
-st.title("🎥 Detector de Formas Geométricas — En Tiempo Real (10s)")
-st.caption("Optimizado para macOS M4, Windows y cámaras virtuales (Iriun, OBS, etc.)")
+st.set_page_config(page_title="Detector de Formas (Live Final)", layout="wide")
+st.title("🎥 Detector de Formas Geométricas — En Tiempo Real (Final)")
+st.caption("Versión estable para Streamlit Cloud • Compatible con macOS M4 y Windows")
 
 # Estado persistente
 if "start_time" not in st.session_state:
@@ -95,10 +95,12 @@ if "running" not in st.session_state:
 if "conteo_final" not in st.session_state:
     st.session_state.conteo_final = None
 
-# Botones
+# Ajuste de duración
+duracion = st.slider("⏱️ Duración de detección (segundos):", 5, 30, 10, step=5)
+
 col1, col2 = st.columns([1, 1])
 with col1:
-    if st.button("▶️ Iniciar detección (10s)"):
+    if st.button("▶️ Iniciar detección"):
         st.session_state.start_time = time.time()
         st.session_state.running = True
         st.session_state.conteo_final = None
@@ -109,24 +111,22 @@ with col2:
         st.session_state.conteo_final = None
         st.experimental_rerun()
 
-# Stream de video (CORREGIDO)
+# Cámara en vivo
 ctx = webrtc_streamer(
-    key="form-detector-timer",
-    mode=WebRtcMode.TRANSFORM,  # ✅ CORREGIDO
+    key="form-detector-final",
+    mode="transform",  # ✅ Compatible universal
     video_processor_factory=VideoProcessor,
     media_stream_constraints={"video": True, "audio": False},
     async_transform=True
 )
 
-# --------------------------
-# TEMPORIZADOR
-# --------------------------
+# Temporizador
 if ctx.video_processor:
     processor = ctx.video_processor
 
     if st.session_state.running:
         elapsed = time.time() - st.session_state.start_time
-        remaining = max(0, 10 - elapsed)
+        remaining = max(0, duracion - elapsed)
         st.subheader(f"🕒 Tiempo restante: {remaining:0.1f} segundos")
 
         if remaining <= 0:
@@ -136,7 +136,7 @@ if ctx.video_processor:
             st.success("✅ ¡Tiempo completado! Detección finalizada.")
     else:
         if st.session_state.conteo_final:
-            st.subheader("📊 Conteo Final de Formas Detectadas (10s)")
+            st.subheader("📊 Conteo Final de Formas Detectadas")
             conteo = st.session_state.conteo_final
             fig, ax = plt.subplots(figsize=(4, 2))
             formas = list(conteo.keys())
