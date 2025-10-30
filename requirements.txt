@@ -3,3 +3,5 @@ opencv-python-headless
 numpy
 pillow
 matplotlib
+av
+streamlit-webrtc
