@@ -1,7 +1,7 @@
 # ============================================
-# APP WEB: DETECTOR DE FORMAS GEOMÉTRICAS (STREAMLIT)
-# Versión avanzada con detección híbrida de círculos
-# Compatible con macOS M1–M4 y Windows
+# APP WEB: DETECTOR DE FORMAS GEOMÉTRICAS v2
+# Precisión mejorada en detección de círculos
+# Compatible con macOS M4 y Windows
 # ============================================
 
 import cv2
@@ -15,33 +15,25 @@ import matplotlib.pyplot as plt
 # --------------------------
 st.set_page_config(page_title="Detector de Formas Geométricas", layout="wide")
 st.title("🎯 Detector de Formas Geométricas")
-st.caption("Optimizado para macOS M4 y Windows — Compatible con cámaras virtuales como Iriun Webcam")
+st.caption("Versión optimizada — detección precisa de círculos y compatibilidad con macOS M4 / Windows")
 
 # --------------------------
-# FUNCIÓN: DETECTOR MEJORADO
+# FUNCIÓN PRINCIPAL DE DETECCIÓN
 # --------------------------
 def detectar_formas_mejorado(frame_bgr):
     conteo = {"Triangulo": 0, "Cuadrado": 0, "Rectangulo": 0, "Circulo": 0}
     gris = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
 
-    # Aumentar contraste local
-    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    # 1️⃣ Aumentar contraste y reducir ruido
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     gris_eq = clahe.apply(gris)
-    blur = cv2.GaussianBlur(gris_eq, (5, 5), 0)
+    blur = cv2.medianBlur(gris_eq, 5)  # mejor para círculos
 
-    # Detección de bordes
-    v = np.median(blur)
-    sigma = 0.33
-    lower = int(max(0, (1.0 - sigma) * v))
-    upper = int(min(255, (1.0 + sigma) * v))
-    edges = cv2.Canny(blur, lower, upper)
+    # 2️⃣ Detección de bordes
+    edges = cv2.Canny(blur, 50, 120)
+    edges = cv2.dilate(edges, None, iterations=1)
 
-    # Morfología
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-    edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel, iterations=1)
-    edges = cv2.dilate(edges, kernel, iterations=1)
-
-    # Contornos poligonales
+    # 3️⃣ Contornos poligonales
     contornos, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     h, w = frame_bgr.shape[:2]
     area_min = max(500.0, 0.0002 * h * w)
@@ -67,16 +59,15 @@ def detectar_formas_mejorado(frame_bgr):
             color = (0, 255, 255)
         elif len(approx) == 4:
             aspect_ratio = bw / float(bh)
-            if 0.95 <= aspect_ratio <= 1.05:
+            if 0.9 <= aspect_ratio <= 1.1:
                 forma = "Cuadrado"
                 color = (255, 0, 0)
             else:
                 forma = "Rectangulo"
                 color = (0, 255, 0)
-        else:
-            if circularidad > 0.80:
-                forma = "Circulo"
-                color = (0, 0, 255)
+        elif circularidad > 0.85 and 0.8 <= (bw / bh) <= 1.2:
+            forma = "Circulo"
+            color = (0, 0, 255)
 
         if forma:
             conteo[forma] += 1
@@ -84,24 +75,25 @@ def detectar_formas_mejorado(frame_bgr):
             cv2.putText(frame_bgr, forma, (x, y - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 
-    # Detección adicional por Hough Transform
-    circulos = cv2.HoughCircles(
-        blur,
-        cv2.HOUGH_GRADIENT,
-        dp=1.2,
-        minDist=30,
-        param1=upper,
-        param2=30,
-        minRadius=10,
-        maxRadius=200
-    )
-
-    if circulos is not None:
-        circulos = np.uint16(np.around(circulos))
-        for i in circulos[0, :]:
-            cv2.circle(frame_bgr, (i[0], i[1]), i[2], (0, 0, 255), 2)
-            cv2.circle(frame_bgr, (i[0], i[1]), 2, (255, 255, 255), 3)
-            conteo["Circulo"] += 1
+    # 4️⃣ Detección extra por HoughCircles (solo si hay pocos bordes)
+    edges_count = cv2.countNonZero(edges)
+    if edges_count < (h * w * 0.02):  # solo aplica si hay pocos bordes
+        circulos = cv2.HoughCircles(
+            blur,
+            cv2.HOUGH_GRADIENT,
+            dp=1.4,
+            minDist=60,
+            param1=120,
+            param2=45,
+            minRadius=20,
+            maxRadius=250
+        )
+        if circulos is not None:
+            circulos = np.uint16(np.around(circulos))
+            for i in circulos[0, :]:
+                cv2.circle(frame_bgr, (i[0], i[1]), i[2], (0, 0, 255), 2)
+                cv2.circle(frame_bgr, (i[0], i[1]), 2, (255, 255, 255), 3)
+                conteo["Circulo"] += 1
 
     return frame_bgr, conteo
 
@@ -112,7 +104,8 @@ def mostrar_histograma(conteo):
     fig, ax = plt.subplots(figsize=(4, 2))
     formas = list(conteo.keys())
     valores = list(conteo.values())
-    ax.bar(formas, valores, color=['gold', 'blue', 'green', 'red'])
+    colores = ['gold', 'blue', 'green', 'red']
+    ax.bar(formas, valores, color=colores)
     ax.set_title("Conteo de Formas Detectadas")
     ax.set_ylabel("Cantidad")
     st.pyplot(fig)
