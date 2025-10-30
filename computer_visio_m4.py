@@ -1,6 +1,6 @@
 # ============================================
 # DETECTOR DE FORMAS EN VIDEO (FINAL STREAMLIT CLOUD)
-# En vivo + contador configurable + reinicio
+# En vivo + contador configurable + reinicio + overlay
 # Compatible con macOS M4 / Windows / Streamlit Cloud
 # ============================================
 
@@ -69,23 +69,40 @@ class VideoProcessor(VideoTransformerBase):
     def __init__(self):
         self.total_conteo = {"Triangulo": 0, "Cuadrado": 0, "Rectangulo": 0, "Circulo": 0}
         self.freeze = False
+        self.remaining = None
 
     def transform(self, frame):
-        if self.freeze:
-            return frame.to_ndarray(format="bgr24")
         frame_bgr = frame.to_ndarray(format="bgr24")
-        resultado, conteo = detectar_formas(frame_bgr)
-        for k in conteo:
-            self.total_conteo[k] += conteo[k]
+
+        if not self.freeze:
+            resultado, conteo = detectar_formas(frame_bgr)
+            for k in conteo:
+                self.total_conteo[k] += conteo[k]
+        else:
+            resultado = frame_bgr
+
+        # Mostrar contador overlay si existe
+        if self.remaining is not None:
+            cv2.putText(
+                resultado,
+                f"⏱ {self.remaining:0.1f}s",
+                (20, 40),
+                cv2.FONT_HERSHEY_DUPLEX,
+                1.0,
+                (0, 255, 255),
+                2,
+                cv2.LINE_AA,
+            )
+
         return resultado
 
 
 # --------------------------
 # INTERFAZ STREAMLIT
 # --------------------------
-st.set_page_config(page_title="Detector de Formas (Live Final)", layout="wide")
-st.title("🎥 Detector de Formas Geométricas — En Tiempo Real (Final)")
-st.caption("Versión estable para Streamlit Cloud • Compatible con macOS M4 y Windows")
+st.set_page_config(page_title="Detector de Formas (Final Live)", layout="wide")
+st.title("🎥 Detector de Formas Geométricas — En Tiempo Real (Versión Final)")
+st.caption("Optimizado para Streamlit Cloud • Compatible con macOS M4 y Windows")
 
 # Estado persistente
 if "start_time" not in st.session_state:
@@ -109,24 +126,24 @@ with col2:
         st.session_state.start_time = None
         st.session_state.running = False
         st.session_state.conteo_final = None
-        st.experimental_rerun()
+        st.rerun()  # ✅ versión moderna
 
-# Cámara en vivo
+# Cámara en vivo (modo automático, sin 'mode')
 ctx = webrtc_streamer(
     key="form-detector-final",
-    mode="transform",  # ✅ Compatible universal
     video_processor_factory=VideoProcessor,
     media_stream_constraints={"video": True, "audio": False},
     async_transform=True
 )
 
-# Temporizador
+# Temporizador y lógica
 if ctx.video_processor:
     processor = ctx.video_processor
 
     if st.session_state.running:
         elapsed = time.time() - st.session_state.start_time
         remaining = max(0, duracion - elapsed)
+        processor.remaining = remaining
         st.subheader(f"🕒 Tiempo restante: {remaining:0.1f} segundos")
 
         if remaining <= 0:
@@ -135,6 +152,7 @@ if ctx.video_processor:
             st.session_state.conteo_final = processor.total_conteo
             st.success("✅ ¡Tiempo completado! Detección finalizada.")
     else:
+        processor.remaining = None
         if st.session_state.conteo_final:
             st.subheader("📊 Conteo Final de Formas Detectadas")
             conteo = st.session_state.conteo_final
